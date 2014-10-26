@@ -2,15 +2,25 @@ __author__ = 'Gregory'
 
 import argparse
 from queue import PriorityQueue
+from bitarray import bitarray
+from array import array
+import struct
+
+def data_length_string(length):
+    for magnitude in ['bytes', 'kb', 'mb', 'gb', 'tb']:
+        if length < 1024:
+            return "%3.1f %s" % (length, magnitude)
+        else:
+            length /= 1024
 
 class HuffmanTree:
-    def __init__(self, left = None, right = None, symbol = None, probability = None, frequency_table = None):
+    def __init__(self, left=None, right=None, symbol=None, probability=None, frequency_table=None):
         self.left = left
         self.right = right
         self.symbol = symbol
         self.probability = probability
 
-        if frequency_table != None:
+        if frequency_table is not None:
             self.from_frequencies(frequency_table)
 
     def __lt__(self, other):
@@ -19,7 +29,7 @@ class HuffmanTree:
     def from_frequencies(self, frequencies):
         forest = PriorityQueue()
 
-        for key in frequencies:
+        for key in range(256):
             frequency = frequencies[key]
             tree = HuffmanTree(symbol=key, probability=frequency)
             forest.put(tree)
@@ -70,26 +80,13 @@ def getargs():
 
     return arguments
 
-def analyze_counts(string):
-    counts = {}
+def analyze_counts(sequence):
+    counts = [0 for i in range(256)]
 
-    for character in string:
-        if character in counts:
-            counts[character] += 1
-        else:
-            counts[character] = 1
+    for byte in sequence:
+        counts[byte] += 1
 
     return counts
-
-def analyze_frequencies(string):
-    frequencies = {}
-
-    counts = analyze_counts(string)
-
-    for key in counts:
-        frequencies[key] = counts[key] / len(string)
-
-    return frequencies
 
 def encode(filename, output_name):
     if output_name == None:
@@ -97,19 +94,54 @@ def encode(filename, output_name):
 
     print('encoding file \'' + filename + '\' to \'' + output_name + '\'')
 
-    with open(filename, 'r') as f:
-        string = f.read()
+    with open(filename, 'rb') as f:
+        bytes = f.read()
+        print('\'' + filename + '\' read, ' + data_length_string(len(bytes)))
 
-    frequencies = analyze_frequencies(string)
+    print('analyzing frequency distribution')
+    counts = analyze_counts(bytes)
 
-    tree = HuffmanTree(frequency_table = frequencies)
+    print('building Huffman tree')
+    tree = HuffmanTree(frequency_table = counts)
 
+    print('building code table')
     code_table = tree.make_code_table()
 
-    order = sorted(frequencies, key = frequencies.__getitem__, reverse = True)
+    code = bitarray('')
 
-    for key in order:
-        print(key + ': ' + code_table[key])
+    i = 0
+    file_length = len(bytes)
+
+    for byte in bytes:
+        code_string = code_table[byte]
+        code += bitarray(code_string)
+
+        if (i % 1024 == 0):
+            print('packing %2.1f%%' % (i / file_length * 100.0), end='\r')
+
+        i += 1
+
+    print('packing 100%')
+
+    count_array = array('I')
+    count_array.fromlist(counts)
+
+    total = 0
+
+    with open(output_name, 'wb') as f:
+        key_bytes = count_array.tobytes()
+        f.write(key_bytes)
+        key_length = len(key_bytes)
+        print('key written, ' + data_length_string(key_length))
+        total += key_length
+        data_bytes = code.tobytes()
+        f.write(data_bytes)
+        data_length = len(data_bytes)
+        total += data_length
+        print('data written, ' + data_length_string(data_length))
+
+    print('\'' + output_name + '\' written, ' + data_length_string(total))
+    print('file packed to %2.1f%% of original size' % (total / file_length * 100.0))
 
 def decode(filename, output_name):
     if output_name == None:
@@ -119,6 +151,51 @@ def decode(filename, output_name):
             output_name = filename
 
     print('decoding file \'' + filename + '\' to \'' + output_name + '\'')
+
+    with open(filename, 'rb') as f:
+        key_bytes = f.read(4 * 256)
+        print('key read, ' + data_length_string(len(key_bytes)))
+        data_bytes = f.read()
+        print('data read, ' + data_length_string(len(data_bytes)))
+
+    count_array = array('I')
+    count_array.frombytes(key_bytes)
+    counts = count_array.tolist()
+
+    tree = HuffmanTree()
+    tree.from_frequencies(counts)
+
+    code = bitarray()
+    code.frombytes(data_bytes)
+
+    node = tree
+    output = bytes()
+
+    i = 0
+    code_length = len(code)
+
+    for bit in code:
+        if bit is True and node.right is not None:
+            node = node.right
+        elif bit is False and node.left is not None:
+            node = node.left
+
+        if node.symbol is not None:
+            output += struct.pack('B', node.symbol)
+            node = tree
+
+        if (i % 1024 == 0):
+            print('unpacking %2.1f%%' % (i / code_length * 100.0), end='\r')
+
+        i += 1
+
+    print('unpacking 100%')
+
+    with open(output_name, 'wb') as f:
+        f.write(output)
+        print('\'' + output_name + '\' written, ' + data_length_string(len(output)))
+
+    #print(code)
 
 def main():
     arguments = getargs()
