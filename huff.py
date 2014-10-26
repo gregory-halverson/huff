@@ -6,6 +6,7 @@ from bitarray import bitarray
 from array import array
 import struct
 
+# output number of bytes as kb, mb, ...
 def data_length_string(length):
     for magnitude in ['bytes', 'kb', 'mb', 'gb', 'tb']:
         if length < 1024:
@@ -13,7 +14,11 @@ def data_length_string(length):
         else:
             length /= 1024
 
+# Huffman tree to convert frequency table to code table
 class HuffmanTree:
+    # root initialized with frequency table
+    # branches initialized with left, right, and probability
+    # leaves initialized with symbol and probability
     def __init__(self, left=None, right=None, symbol=None, probability=None, frequency_table=None):
         self.left = left
         self.right = right
@@ -23,17 +28,21 @@ class HuffmanTree:
         if frequency_table is not None:
             self.from_frequencies(frequency_table)
 
+    # make class comparable
     def __lt__(self, other):
         return self.probability < other.probability
 
+    # build tree from frequency table
     def from_frequencies(self, frequencies):
         forest = PriorityQueue()
 
+        # create a new tree for each symbol and add it to the forest
         for key in range(256):
             frequency = frequencies[key]
             tree = HuffmanTree(symbol=key, probability=frequency)
             forest.put(tree)
 
+        # join the two lowest probability trees together until the forest is combined
         while forest.qsize() > 1:
             tree1 = forest.get()
             tree2 = forest.get()
@@ -42,11 +51,13 @@ class HuffmanTree:
 
             forest.put(combined)
 
+        # copy combined tree
         tree = forest.get()
         self.left = tree.left
         self.right = tree.right
         self.probability = tree.probability
 
+    # generate code table from tree
     def make_code_table(self):
         self.code_table = {}
 
@@ -54,6 +65,7 @@ class HuffmanTree:
 
         return self.code_table
 
+    # recursively traverse tree to build code table
     def traverse(self, tree, path):
         if tree.symbol is not None:
             self.code_table[tree.symbol] = path
@@ -63,6 +75,7 @@ class HuffmanTree:
             if tree.right is not None:
                 self.traverse(tree.right, path + '1')
 
+# parse argument list
 def getargs():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest = 'command', help = 'command')
@@ -80,6 +93,7 @@ def getargs():
 
     return arguments
 
+# count occurrence of each symbol
 def analyze_counts(sequence):
     counts = [0 for i in range(256)]
 
@@ -88,6 +102,7 @@ def analyze_counts(sequence):
 
     return counts
 
+# encode file into huffman file
 def encode(filename, output_name):
     if output_name == None:
         output_name = filename + '.huff'
@@ -133,6 +148,7 @@ def encode(filename, output_name):
         f.write(key_bytes)
         key_length = len(key_bytes)
         print('key written, ' + data_length_string(key_length))
+
         total += key_length
         data_bytes = code.tobytes()
         f.write(data_bytes)
@@ -143,6 +159,7 @@ def encode(filename, output_name):
     print('\'' + output_name + '\' written, ' + data_length_string(total))
     print('file packed to %2.1f%% of original size' % (total / file_length * 100.0))
 
+# decode huffman file to file
 def decode(filename, output_name):
     if output_name == None:
         if filename.endswith('.huff'):
@@ -195,8 +212,7 @@ def decode(filename, output_name):
         f.write(output)
         print('\'' + output_name + '\' written, ' + data_length_string(len(output)))
 
-    #print(code)
-
+# main function if called from command line
 def main():
     arguments = getargs()
 
